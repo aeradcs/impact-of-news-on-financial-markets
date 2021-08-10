@@ -8,6 +8,7 @@ import re
 import plotly.express as px
 import gensim.matutils as matutils
 from sklearn.decomposition import SparsePCA
+import numpy as np
 
 
 def preprocessing(text):
@@ -80,13 +81,13 @@ def HDP(filename):
     likelihood_df = pd.DataFrame(model.get_topics())
     print("likelihood_df")
     print(likelihood_df)
-    likelihood_df.to_csv('df/likelihood_df.csv', index=False)
+    likelihood_df.to_csv('df/likelihood.csv', index=False)
 
-    # result_df = pd.DataFrame({'text': df['text'],
-    #                           'cluster HDP': pd.Series(get_topics_for_texts(df['text'], likelihood_df, dictionary))})
-    # print("result_df")
-    # print(result_df)
-    # result_df.to_csv('df/texts_clusters_df.csv', index=False)
+    result_df = pd.DataFrame({'text': df['text'],
+                              'cluster HDP': pd.Series(get_topics_for_texts(df['text'], likelihood_df, dictionary))})
+    print("result_df")
+    print(result_df)
+    result_df.to_csv('df/texts_clusters.csv', index=False)
 
     sparse_matrix = matutils.corpus2csc(corpus)
     print("sparse_matrix")
@@ -99,9 +100,9 @@ def HDP(filename):
     dense_df = pd.DataFrame(dense)
     print("dense_df")
     print(dense_df)
-    dense_df.to_csv('df/dense_df.csv')
+    dense_df.to_csv('df/dense.csv')
 
-    pca = SparsePCA(n_components=3, random_state=0)
+    pca = SparsePCA(n_components=3)
     reduced = pca.fit_transform(dense)
     print("reduced")
     print(reduced)
@@ -109,18 +110,35 @@ def HDP(filename):
     reduced_df = pd.DataFrame(reduced)
     print("reduced_df")
     print(reduced_df)
-    reduced_df.to_csv('df/reduced_df.csv', index=False)
+    reduced_df.to_csv('df/reduced.csv', index=False)
 
-    fig = px.scatter_3d(reduced, x=0, y=1, z=2)
+    new = pd.concat([reduced_df, result_df['cluster HDP']], axis=1)
+    new.to_csv('df/reduced_vectors_clusters.csv', index=False)
+
+    fig = px.scatter_3d(new, x=0, y=1, z=2, color='cluster HDP')
+    fig.update_traces(marker=dict(size=5))
+    fig.write_html('colored_vis.html')
     fig.show()
 
-
-
+    fig_0 = px.scatter_3d(reduced_df, x=0, y=1, z=2)
+    fig_0.update_traces(marker=dict(size=5))
+    fig_0.write_html('vis.html')
+    fig_0.show()
 
 
 if __name__ == '__main__':
     # HDP('BloombergScraping.txt')
 
-    df = pd.read_csv('df/reduced_df.csv')
-    fig = px.scatter_3d(df, x='0', y='1', z='2')
+    df = pd.read_csv('df/reduced_vectors_clusters.csv')
+    print(df)
+    fig = px.scatter_3d(df, x='0', y='1', z='2', color='cluster HDP')
+    fig.update_traces(marker=dict(size=5))
+    fig.write_html('colored_vis.html')
+    fig.show()
+
+    df_ = pd.read_csv('df/reduced.csv')
+    print(df_)
+    fig = px.scatter_3d(df_, x='0', y='1', z='2')
+    fig.update_traces(marker=dict(size=5))
+    fig.write_html('vis.html')
     fig.show()
