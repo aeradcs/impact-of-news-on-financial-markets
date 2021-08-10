@@ -68,24 +68,25 @@ def HDP(filename):
     df_orig = df_orig.rename(columns={0: 'text'})
 
     df = df_orig.copy()
-    df = df[0:10]
+    # df = df[0:10]
     df['text'] = df['text'].apply(lambda text: preprocessing(text))
-    print("df\n", df)
+    print("df")
+    print(df)
 
     dictionary = Dictionary(df['text'])
     corpus = [dictionary.doc2bow(text) for text in df['text']]
 
     model = HdpModel(corpus, dictionary)
     likelihood_df = pd.DataFrame(model.get_topics())
-    print("likelihood")
+    print("likelihood_df")
     print(likelihood_df)
     likelihood_df.to_csv('df/likelihood_df.csv', index=False)
 
-    result_df = pd.DataFrame({'text': df['text'],
-                              'cluster HDP': pd.Series(get_topics_for_texts(df['text'], likelihood_df, dictionary))})
-    print("result_df")
-    print(result_df)
-    result_df.to_csv('df/texts_clusters_df.csv', index=False)
+    # result_df = pd.DataFrame({'text': df['text'],
+    #                           'cluster HDP': pd.Series(get_topics_for_texts(df['text'], likelihood_df, dictionary))})
+    # print("result_df")
+    # print(result_df)
+    # result_df.to_csv('df/texts_clusters_df.csv', index=False)
 
     sparse_matrix = matutils.corpus2csc(corpus)
     print("sparse_matrix")
@@ -106,7 +107,7 @@ def HDP(filename):
     print(reduced)
 
     reduced_df = pd.DataFrame(reduced)
-    print("reduce_df")
+    print("reduced_df")
     print(reduced_df)
     reduced_df.to_csv('df/reduced_df.csv', index=False)
 
@@ -118,4 +119,8 @@ def HDP(filename):
 
 
 if __name__ == '__main__':
-    HDP('BloombergScraping.txt')
+    # HDP('BloombergScraping.txt')
+
+    df = pd.read_csv('df/reduced_df.csv')
+    fig = px.scatter_3d(df, x='0', y='1', z='2')
+    fig.show()
