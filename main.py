@@ -4,16 +4,9 @@ from nltk.corpus import stopwords as nltk_stopwords
 from gensim.models.hdpmodel import HdpModel
 from gensim.corpora import Dictionary
 import re
-import pprint
 import plotly.express as px
 import gensim.matutils as matutils
 from sklearn.decomposition import SparsePCA
-from sklearn.svm import NuSVC
-from sklearn.svm import LinearSVC
-from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import StandardScaler
-import numpy as np
-from sklearn.decomposition import PCA
 from sklearn.svm import SVC
 from sklearn.metrics import average_precision_score
 from sklearn.metrics import precision_recall_curve
@@ -21,7 +14,6 @@ import matplotlib.pyplot as plt
 from sklearn import metrics
 from sklearn.preprocessing import label_binarize
 from sklearn.ensemble import RandomForestClassifier
-
 
 
 def preprocessing(text):
@@ -58,6 +50,7 @@ def preprocessing(text):
     text = cleaned_text
     return text
 
+
 def get_topics_for_texts(texts, likelihood_df, dictionary):
     topic_num_sum_log_p = pd.DataFrame({'topic_num': [], 'sum_log_p': []})
     topic_nums_list = []
@@ -78,129 +71,68 @@ def get_topics_for_texts(texts, likelihood_df, dictionary):
 
 
 def classify(filename):
-    df_orig = pd.read_csv(filename, sep='\n', header=None)
-    df_orig = df_orig.rename(columns={0: 'text'})
+    df_orig = pd.read_csv(filename)
     print(df_orig.head())
-
     df = df_orig.copy()
     df = df[0:100]
-    df['text'] = df['text'].apply(lambda text: preprocessing(text))
-    print("df")
+    df['news'] = df['news'].apply(lambda text: preprocessing(text))
     print(df.head())
 
-    dictionary = Dictionary(df['text'])
-    corpus = [dictionary.doc2bow(text) for text in df['text']]
-    print(corpus[0])
-
+    dictionary = Dictionary(df['news'])
+    corpus = [dictionary.doc2bow(text) for text in df['news']]
     model = HdpModel(corpus, dictionary)
     likelihood_df = pd.DataFrame(model.get_topics())
-    print("likelihood_df")
-    print(likelihood_df)
-    # topics = model.print_topics(num_topics=150, num_words=20)
-    # key_words = []
-    # coefs_in_topic = []
-    # for topic in topics:
-    #     print(topic[1])
-    #     str = topic[1].replace("*", " ")
-    #     str = str.replace("+ ", "")
-    #     # print(str)
-    #     coefs_in_topic.append(re.findall(r'[0][\.][0-9]{3}', topic[1]))
-    #     key_words.append(re.findall(r'[a-z]+', str))
-    #     # print([float(s) for s in str.split() if s.isdigit()])
-    # print(coefs_in_topic)
-    # print(key_words)
-    # to_delete = []
-    # for words, i in zip(key_words, range(0,150)):
-    #     for words_, j in zip(key_words, range(0,150)):
-    #         # если количество одинаковых ключевых слов (ключевых слов изначально во всех темах 10) в двух темах больше 6, то одну из тем можно убрать
-    #         if i != j and len(list(set(words).intersection(words_))) > 2:
-    #             print(len(list(set(words).intersection(words_))))
-    #             print(i, j)
+    print("likelihood_df\n", likelihood_df.head())
 
-    # likelihood_df.to_csv('df/likelihood.csv', index=False)
-
-    result_df = pd.DataFrame({'text': df['text'],
-                              'cluster HDP': pd.Series(get_topics_for_texts(df['text'], likelihood_df, dictionary)),
-                              'target': [1,1,1,0,0,1,1,0,1,0,1,0,1,1,0,0,0,1,1,1,1,1,0,0,0,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1]})
-    print("result_df")
-    print(result_df)
-    # result_df.to_csv('df/texts_clusters.csv', index=False)
+    df = pd.concat([df, pd.DataFrame({'cluster HDP': pd.Series(get_topics_for_texts(df['news'], likelihood_df, dictionary))})], axis=1)
+    pd.set_option('display.max_columns', None)
+    pd.set_option('display.width', None)
+    print("df\n", df.head())
 
     sparse_matrix = matutils.corpus2csc(corpus)
-    print("sparse_matrix")
-    print(sparse_matrix)
-
     pca = SparsePCA(n_components=3)
-    reduced = pca.fit_transform(sparse_matrix.toarray().T)
-    print("reduced")
-    print(reduced)
+    reduced = pd.DataFrame(pca.fit_transform(sparse_matrix.toarray().T))
+    print("reduced\n", reduced[:5])
 
-    # dense = sparse_matrix.toarray().T
-    # print("dense")
-    # print(dense)
-    #
-    # dense_df = pd.DataFrame(dense)
-    # print("dense_df")
-    # print(dense_df)
-    # # dense_df.to_csv('df/dense.csv')
+    p = count_p(df)
+    print("p\n", p.head(20))
 
-    reduced_df = pd.DataFrame(reduced)
-    print("reduced_df")
-    print(reduced_df)
-    # reduced_df.to_csv('df/reduced.csv', index=False)
-
-    p = count_p(result_df)
-    print("p")
-    print(p)
-
-    clusters = predict_cluster(sparse_matrix.toarray().T, result_df)
-    print(f"for cluster {clusters[0]}")
-    print(f"ANSWER IS {predict_impact(p, clusters[0])}")
+    clusters = predict_cluster(sparse_matrix.toarray().T, df)
+    for cluster in clusters:
+        print(f"for cluster {cluster} answer is {predict_impact(p, cluster)}")
 
     # df to build colored plot
-    reduced_vector_cluster_target = pd.concat([reduced_df, result_df['cluster HDP'], result_df['target']], axis=1)
-    # print("reduced_vector_cluster_target")
-    # print(reduced_vector_cluster_target.head())
-    # reduced_vector_cluster_target.to_csv('df/reduced_vectors_clusters.csv', index=False)
+    reduced_vector_cluster = pd.concat([reduced, df['cluster HDP']], axis=1)
 
     # colored plot
-    fig = px.scatter_3d(reduced_vector_cluster_target, x=0, y=1, z=2, color='cluster HDP')
+    fig = px.scatter_3d(reduced_vector_cluster, x=0, y=1, z=2, color='cluster HDP')
     fig.update_traces(marker=dict(size=5))
     # fig.write_html('colored_vis.html')
     fig.show()
 
     # usual plot
-    fig_usual = px.scatter_3d(reduced_df, x=0, y=1, z=2)
+    fig_usual = px.scatter_3d(reduced, x=0, y=1, z=2)
     fig_usual.update_traces(marker=dict(size=5))
     # fig_usual.write_html('vis.html')
     fig_usual.show()
 
 
-
-
-
-def count_p(result_df):
-    count_clusters = pd.DataFrame(result_df.groupby(['cluster HDP']).size().sort_values(ascending=False)).reset_index().\
+def count_p(df):
+    count_clusters = pd.DataFrame(df.groupby(['cluster HDP']).size().sort_values(ascending=False)).reset_index().\
         rename(columns={0: 'count all'})
-    count_target_1 = pd.DataFrame(result_df.loc[result_df['target'] == 1].groupby(['cluster HDP']).size().sort_values(ascending=False)).reset_index().\
+    count_target_1 = pd.DataFrame(df.loc[df['mark'] == 1].groupby(['cluster HDP']).size().sort_values(ascending=False)).reset_index().\
         rename(columns={0: 'count target 1'})
-    # print("count")
-    # print(count_clusters)
-    # print("target")
-    # print(count_target_1)
-    final = count_clusters.merge(count_target_1, how='outer', on='cluster HDP').fillna(0)
-    print("final")
-    print(final)
-
-    return pd.concat([final['cluster HDP'],
-                           final.apply(lambda row: row['count target 1'] / row['count all'], axis=1)], axis=1).rename(columns={0: 'p'})
+    counted = count_clusters.merge(count_target_1, how='outer', on='cluster HDP').fillna(0)
+    print("counted\n", counted.head(20))
+    return pd.concat([counted['cluster HDP'],
+                           counted.apply(lambda row: row['count target 1'] / row['count all'], axis=1)], axis=1).rename(columns={0: 'p'})
 
 
-def predict_cluster(matrix, result_df):
+def predict_cluster(matrix, df):
     X = matrix[0:80]
     X_test = matrix[80:100]
-    y = result_df['cluster HDP'].values[0:80]
-    y_true = result_df['cluster HDP'].values[80:100]
+    y = df['cluster HDP'].values[0:80]
+    y_true = df['cluster HDP'].values[80:100]
 
     # classifier = SVC()
     classifier = RandomForestClassifier()
@@ -249,9 +181,8 @@ def predict_impact(p, cluster):
         return 0
 
 
-
 if __name__ == '__main__':
-    classify('BloombergScraping.txt')
+    classify('new_date_target_df.csv')
 
 
     # df = pd.read_csv('df/reduced_vectors_clusters.csv')
