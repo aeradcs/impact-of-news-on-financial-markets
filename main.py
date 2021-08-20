@@ -51,7 +51,7 @@ def get_topics_for_texts(texts, likelihood_df, dictionary):
     topic_nums_list = []
     sum_log_p = 0
     for text in texts:
-        for topic in range(0, 10):
+        for topic in range(0, 15):
             for word in text:
                 id = dictionary.token2id[word]
                 p = likelihood_df[id][topic]
@@ -66,34 +66,43 @@ def get_topics_for_texts(texts, likelihood_df, dictionary):
 
 
 def classify(filename):
+    # preprocessing
     df_orig = pd.read_csv(filename)
     print(df_orig.head())
     df = df_orig.copy()
     df['news'] = df['news'].apply(lambda text: preprocessing(text))
     print(df.head())
 
+    # get likelihood by hdp
     dictionary = Dictionary(df['news'])
     corpus = [dictionary.doc2bow(text) for text in df['news']]
-    model = HdpModel(corpus, dictionary, T=10, random_state=0)
+    model = HdpModel(corpus, dictionary, T=15)
     likelihood_df = pd.DataFrame(model.get_topics())
-    print("likelihood_df\n", likelihood_df.head(10))
+    print("likelihood_df\n", likelihood_df.head())
 
+    # get cluster for every new
     df = pd.concat([df, pd.DataFrame({'cluster HDP': pd.Series(get_topics_for_texts(df['news'], likelihood_df, dictionary))})], axis=1)
     pd.set_option('display.max_columns', None)
     pd.set_option('display.width', None)
     print("df\n", df.head())
 
+    # reduce dims to build plot
     sparse_matrix = matutils.corpus2csc(corpus)
+    dense = sparse_matrix.toarray().T
     pca = SparsePCA(n_components=3)
-    reduced = pd.DataFrame(pca.fit_transform(sparse_matrix.toarray().T))
+    reduced = pd.DataFrame(pca.fit_transform(dense))
     print("reduced\n", reduced[:5])
 
+    # count p = amount of news with target 1 in cluster / amount of news in cluster
     p = count_p(df)
-    print("p\n", p.head(20))
+    print("p\n", p.head(30))
 
-    clusters,news = predict_cluster(sparse_matrix.toarray().T, df, df_orig)
+    # predict cluster
+    # get 0/1 for new by cluster and p of cluster
+    clusters, news = predict_cluster(dense, df, df_orig)
     for cluster, new in zip(clusters, news):
-        print(f"for cluster {cluster} answer is {predict_impact(p, cluster)} new {new}")
+        if predict_impact(p, cluster) == 1:
+            print(f"for cluster {cluster} answer is {predict_impact(p, cluster)} new {new}")
 
     # df to build colored plot
     reduced_vector_cluster = pd.concat([reduced, df['cluster HDP']], axis=1)
@@ -101,13 +110,13 @@ def classify(filename):
     # colored plot
     fig = px.scatter_3d(reduced_vector_cluster, x=0, y=1, z=2, color='cluster HDP')
     fig.update_traces(marker=dict(size=5))
-    fig.write_html('colored_vis.html')
+    # fig.write_html('colored_vis.html')
     fig.show()
 
     # usual plot
     fig_usual = px.scatter_3d(reduced, x=0, y=1, z=2)
     fig_usual.update_traces(marker=dict(size=5))
-    fig_usual.write_html('vis.html')
+    # fig_usual.write_html('vis.html')
     fig_usual.show()
 
 
@@ -117,7 +126,7 @@ def count_p(df):
     count_target_1 = pd.DataFrame(df.loc[df['mark'] == 1].groupby(['cluster HDP']).size().sort_values(ascending=False)).reset_index().\
         rename(columns={0: 'count target 1'})
     counted = count_clusters.merge(count_target_1, how='outer', on='cluster HDP').fillna(0)
-    print("counted\n", counted.head(20))
+    print("counted\n", counted.head(30))
     return pd.concat([counted['cluster HDP'],
                            counted.apply(lambda row: row['count target 1'] / row['count all'], axis=1)], axis=1).rename(columns={0: 'p'})
 
@@ -135,11 +144,10 @@ def predict_cluster(matrix, df, df_orig):
     y_predicted = classifier.predict(X_test)
     print(f"\npredicted {y_predicted} \ntrue {y_true}")
     print(f"matches amount = {len([x for x, y in zip(y_predicted, y_true) if x == y])} from {len(y_predicted)}")
-
     print(metrics.confusion_matrix(y_true, y_predicted))
     print(metrics.classification_report(y_true, y_predicted, digits=3))
 
-    return y_predicted, df_orig['news'].values[1000:1100]
+    return y_predicted, df_orig['news'].values[0:300]
 
 
 def predict_impact(p, cluster):
