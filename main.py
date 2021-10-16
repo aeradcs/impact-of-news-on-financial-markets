@@ -13,28 +13,43 @@ import GradientBoostingClassifier
 from sklearn.model_selection import train_test_split
 
 
+def transform_corpus_to_corpus_dict(corpus):
+    corpus_list_of_dicts = []
+    corpus_dict = {}
+    for text in corpus:
+        for pair in text:
+            corpus_dict[pair[0]] = pair[1]
+        corpus_list_of_dicts.append(corpus_dict)
+        corpus_dict = {}
+    return corpus_list_of_dicts
+
+
 def classify(filename, news_source_name):
     # preprocessing
     df_orig = pd.read_csv(filename)
     print("df_orig\n", df_orig)
     df = df_orig.copy()
     df['news'] = df['news'].apply(lambda text: utils.preprocessing(text))
-    print("df\n", df)
+    print("df after preprocessing\n", df)
 
     # get likelihood by hdp
     dictionary = Dictionary(df['news'])
     corpus = [dictionary.doc2bow(text) for text in df['news']]
-    model = HdpModel(corpus, dictionary, T=10)
+    corpus_dict = transform_corpus_to_corpus_dict(corpus)
+    model = HdpModel(corpus, dictionary, T=10, random_state=1)
     likelihood_df = pd.DataFrame(model.get_topics())
     print("likelihood_df\n", likelihood_df.head(50))
     likelihood_df.to_csv(f'df/{news_source_name}_likelihood_df.csv', index=False)
+    print("likelihood_df sum of all columns\n", likelihood_df.sum(axis=1))
 
     # get cluster for every new
-    df = pd.concat([df, pd.DataFrame({'cluster HDP': pd.Series(get_topics_for_texts(df['news'], likelihood_df, dictionary))})], axis=1)
+    df = pd.concat([df, pd.DataFrame({'cluster HDP': pd.Series(get_topics_for_texts(df['news'], likelihood_df,
+                                                                                    dictionary, corpus_dict))})],
+                   axis=1)
     pd.set_option('display.max_columns', None)
     pd.set_option('display.width', None)
-    print("df news and clusters\n", df)
-    pd.DataFrame(pd.concat([df['mark'], df_orig['news'], df['cluster HDP']], axis=1))\
+    print("df after get_topics_for_texts\n", df)
+    pd.DataFrame(pd.concat([df['mark'], df['date'], df_orig['news'], df['cluster HDP']], axis=1)) \
         .to_csv(f'df/{news_source_name}_mark_new_cluster_df.csv', index=False)
 
     # reduce dims to build plot
@@ -43,28 +58,36 @@ def classify(filename, news_source_name):
     print("dense\n", dense)
     dense_df = pd.DataFrame(dense)
     dense_df.to_csv(f'df/{news_source_name}_dense_df.csv', index=False)
-    pca = SparsePCA(n_components=3)
-    reduced = pd.DataFrame(pca.fit_transform(dense))
-    print("reduced\n", reduced)
-    reduced.to_csv(f'df/{news_source_name}_reduced.csv', index=False)
+    # pca = SparsePCA(n_components=3)
+    # reduced = pd.DataFrame(pca.fit_transform(dense))
+    # print("reduced\n", reduced)
+    # reduced.to_csv(f'df/{news_source_name}_reduced.csv', index=False)
 
-    # count p = amount of news with target 1 in cluster / amount of news in cluster
+    # count p1 ... pm
+    # pi = amount of news with target 1 in cluster / amount of news in cluster
     p_list = count_p(df)
-    print("p\n", p_list)
+    print("p_list\n", p_list)
 
-    # predict cluster using random fores
+    # count pk1 .... pkn
+
+    # count full p
+
+    # predict cluster using random forest
     clusters, news = predict_cluster_random_forest(dense, df, df_orig)
 
     # predict impact - get 0/1 for new by cluster and p of cluster
-    predicted_true_impacts_df = pd.DataFrame({'predicted':[], 'true':[]})
+    predicted_true_impacts_df = pd.DataFrame({'predicted': [], 'true': []})
     for cluster, new in zip(clusters, news):
         predicted_impact = predict_impact(p_list, cluster)
         predicted_true_impacts_df = predicted_true_impacts_df.append({'predicted': predicted_impact,
-                                                                      'true': df_orig.loc[df_orig['news'] == new, 'mark'].iloc[0]}, ignore_index=True)
+                                                                      'true': df_orig.loc[
+                                                                          df_orig['news'] == new, 'mark'].iloc[0]},
+                                                                     ignore_index=True)
         # if predicted_impact == 1:
         #     print(f"for cluster {cluster} answer is {predict_impact(p_list, cluster)} new {new}")
-    compare_predicting_impact = pd.DataFrame(np.where(predicted_true_impacts_df['predicted'] == predicted_true_impacts_df['true'],
-                                                      True, False))
+    compare_predicting_impact = pd.DataFrame(
+        np.where(predicted_true_impacts_df['predicted'] == predicted_true_impacts_df['true'],
+                 True, False))
     true_count = compare_predicting_impact.pivot_table(columns=[0], aggfunc='size')[True]
     accuracy_predicting_impact = true_count / len(compare_predicting_impact[0])
     print("-----------accuracy_predicting_impact--------------\n",
@@ -86,35 +109,66 @@ def classify(filename, news_source_name):
     # fig_usual.show()
 
 
-def get_topics_for_texts(texts, likelihood_df, dictionary):
+def get_topics_for_texts(texts, likelihood_df, dictionary, corpus_dict):
     topic_num_sum_log_p = pd.DataFrame({'topic_num': [], 'sum_log_p': []})
     topic_nums_list = []
     sum_log_p = 0
-    for text in texts:
+    sum_p = 0
+
+    #
+    topic_num_sum_p = pd.DataFrame({'topic_num': [], 'sum_p': []})
+    #
+
+    for text, text_number in zip(texts, range(0, texts.size)):
         for topic in range(0, 10):
             for word in text:
                 id = dictionary.token2id[word]
                 p = likelihood_df[id][topic]
-                sum_log_p = sum_log_p + math.log2(p)
-            topic_num_sum_log_p = topic_num_sum_log_p.append({'topic_num': topic, 'sum_log_p': sum_log_p}, ignore_index=True)
+                count = corpus_dict[text_number][id]
+
+                #
+                sum_p = sum_p + p / count
+                #
+
+                sum_log_p = sum_log_p + math.log2(p / count)
+            topic_num_sum_log_p = topic_num_sum_log_p.append({'topic_num': topic, 'sum_log_p': sum_log_p},
+                                                             ignore_index=True)
             sum_log_p = 0
+
+            #
+            topic_num_sum_p = topic_num_sum_p.append({'topic_num': topic, 'sum_p': sum_p}, ignore_index=True)
+            sum_p = 0
+            #
+
         max = topic_num_sum_log_p['sum_log_p'].max()
         topic_num = topic_num_sum_log_p['sum_log_p'].loc[lambda v: v == max].index[0]
         topic_nums_list.append(topic_num)
         topic_num_sum_log_p = pd.DataFrame({'topic_num': [], 'sum_log_p': []})
+
+        #
+        print("-------------------------------------")
+        print(text)
+        print(topic_num_sum_p)
+        topic_num_sum_p = pd.DataFrame({'topic_num': [], 'sum_p': []})
+        #
+
     return topic_nums_list
 
 
-# p = amount of news with target 1 in cluster / amount of news in cluster
+# def get_pk(likelihood, df):
+#     likelihood['cluster HDP'] = likelihood.index
+#     return pd.merge(df, likelihood, on='cluster HDP', how='left')
+
+
 def count_p(df):
-    count_clusters = pd.DataFrame(df.groupby(['cluster HDP']).size().sort_values(ascending=False)).reset_index().\
+    count_clusters = pd.DataFrame(df.groupby(['cluster HDP']).size()).reset_index(). \
         rename(columns={0: 'count all'})
-    count_target_1 = pd.DataFrame(df.loc[df['mark'] == 1].groupby(['cluster HDP']).size().sort_values(ascending=False)).reset_index().\
+    count_target_1 = pd.DataFrame(df.loc[df['mark'] == 1].groupby(['cluster HDP']).size()).reset_index(). \
         rename(columns={0: 'count target 1'})
     counted = count_clusters.merge(count_target_1, how='outer', on='cluster HDP').fillna(0)
-    print("counted\n", counted.head(30))
     return pd.concat([counted['cluster HDP'],
-                           counted.apply(lambda row: row['count target 1'] / row['count all'], axis=1)], axis=1).rename(columns={0: 'p'})
+                      counted.apply(lambda row: row['count target 1'] / row['count all'], axis=1)], axis=1).rename(
+        columns={0: 'p'})
 
 
 def predict_cluster_random_forest(matrix, df, df_orig):
@@ -149,6 +203,7 @@ def predict_cluster_random_forest(matrix, df, df_orig):
     # return y_predicted, df_orig['news'].values[0:300]
     return y_predicted, X_test_news
 
+
 def predict_impact(p_list, cluster):
     if p_list.loc[p_list['cluster HDP'] == cluster, 'p'].iloc[0] > 0.5:
         return 1
@@ -157,8 +212,7 @@ def predict_impact(p_list, cluster):
 
 
 if __name__ == '__main__':
-    classify('marked_dfs/business_standart_marked_df.csv', 'business_standart')
+    # classify('marked_dfs/business_standart_marked_df.csv', 'business_standart')
     # classify('marked_dfs/bloomberg_marked_df.csv', 'bloomberg')
-    # classify('marked_dfs/test.csv', 'test')
+    classify('marked_dfs/test1.csv', 'test')
     # GradientBoostingClassifier.gradient_boosting_classifier()
-
